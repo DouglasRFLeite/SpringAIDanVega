@@ -143,3 +143,144 @@ That's not all tho. We still need to use thar format in our template. So we're c
 Now we can finally try it out with the same command:
 
 >["What a Beautiful Name","Oceans (Where Feet May Fail)","Who You Say I Am","What a Friend","So Will I (100 Billion X)","Mighty to Save","Hosanna","Cornerstone","Broken Vessels (Amazing Grace)","Grace to Grace"]
+
+### Map Converter
+
+On top of the List Converter, we also have a Map Converter (and a BeanConverter we'll see next).
+
+This is the MapConverter class:
+
+```java
+public class MapOutputConverter extends AbstractMessageOutputConverter<Map<String, Object>> {
+
+	public MapOutputConverter() {
+		super(new MappingJackson2MessageConverter());
+	}
+
+	@Override
+	public Map<String, Object> convert(@NonNull String text) {
+		if (text.startsWith("```json") && text.endsWith("```")) {
+			text = text.substring(7, text.length() - 3);
+		}
+
+		Message<?> message = MessageBuilder.withPayload(text.getBytes(StandardCharsets.UTF_8)).build();
+		return (Map) this.getMessageConverter().fromMessage(message, HashMap.class);
+	}
+
+	@Override
+	public String getFormat() {
+		String raw = """
+				Your response should be in JSON format.
+				The data structure for the JSON should match this Java class: %s
+				Do not include any explanations, only provide a RFC8259 compliant JSON response following this format without deviation.
+				Remove the ```json markdown surrounding the output including the trailing "```".
+				""";
+		return String.format(raw, HashMap.class.getName());
+	}
+
+}
+```
+
+We can already notice it's a bit more complicated and thoughtful than the List one. Still doable by hand, but far more difficult. Let us test it out. 
+
+I had to make some changes to the overall class to make this working and clear:
+
+```java
+@RestController
+public class ParsedController {
+    
+    private final ChatClient chatClient;
+
+    @Value("classpath:/prompts/songsArtist.st")
+    private Resource songListArtistResource;
+
+     @Value("classpath:/prompts/songsMap.st")
+    private Resource songMapArtistResource;
+
+    ParsedController(ChatClient.Builder builder){
+        this.chatClient = builder.build();
+    }
+
+    @GetMapping("/songs-list/{artist}")
+    public List<String> getSongListByArtist(@PathVariable(value = "artist") String artist) {
+        ListOutputConverter listOutputConverter = new ListOutputConverter();
+
+        PromptTemplate promptTemplate = new PromptTemplate(songListArtistResource);
+        Prompt prompt = promptTemplate.create(Map.of("artist", artist, "format", listOutputConverter.getFormat()));
+
+        List<String> songs = listOutputConverter.convert(chatClient.prompt(prompt).call().content());
+        return songs;
+    }
+
+    @GetMapping("/songs-map/{artist}")
+    public Map<String, Object> getSongMapByArtist(@PathVariable(value = "artist") String artist) {
+        MapOutputConverter mapOutputConverter = new MapOutputConverter();
+
+        PromptTemplate promptTemplate = new PromptTemplate(songMapArtistResource);
+        Prompt prompt = promptTemplate.create(Map.of("artist", artist, "format", mapOutputConverter.getFormat()));
+
+        Map<String, Object> songs = mapOutputConverter.convert(chatClient.prompt(prompt).call().content());
+        return songs;
+    }
+    
+}
+```
+
+Focusing on the second one we can see it's pretty similar, just changing the name of some stuff. Now, I did have to change the prompt a bit too, so it could ask for more than just name:
+
+> Please give me a map of top 10 songs for the artist {artist} and the amount of awards, as far as you know, for each song.  
+> If you don't know, just say it.  
+> {format}
+
+
+And this was the result:
+
+> {"Hillsong":{"What a Beautiful Name":{"awards":"1"},"Oceans (Where Feet May Fail)":{"awards":"2"},"Who You Say I Am":{"awards":"1"},"What a Savior":{"awards":"0"},"Mighty to Save":{"awards":"2"},"Cornerstone":{"awards":"0"},"So Will I (100 Billion X)":{"awards":"1"},"King of Kings":{"awards":"0"},"Another in the Fire":{"awards":"0"},"This I Believe (The Creed)":{"awards":"0"}}}
+
+I should remind you I don't care if it's true or not, that's on OpenAI. Right now I just care about formating. 
+
+### Bean Converter
+
+Let us take a look at it:
+
+```java
+public BeanOutputConverter(Class<T> clazz) {
+    this(ParameterizedTypeReference.forType(clazz));
+}
+```
+
+Not, this is obviously not the whole class. The whole class is too big for me to put in here. But this shows the interesting fact that this needs a base class to work. Let us create that:
+
+```java
+public record MusicBean(String musicName, Integer numAwards) {}
+
+public record ArtistBean(String artistName, String origin, String style, List<MusicBean> topSongs) {}
+```
+
+Now we can properly use the `BeanOutputParser` in our code:
+
+```java
+@GetMapping("/songs-bean/{artist}")
+public ArtistBean getSongBeanByArtist(@PathVariable(value = "artist") String artist) {
+    BeanOutputConverter<ArtistBean> beanOutputConverter = new BeanOutputConverter<>(ArtistBean.class);
+
+    PromptTemplate promptTemplate = new PromptTemplate(songBeanArtistResource);
+    Prompt prompt = promptTemplate.create(Map.of("artist", artist, "format", beanOutputConverter.getFormat()));
+
+    ArtistBean artistBean = beanOutputConverter.convert(chatClient.prompt(prompt).call().content());
+    return artistBean;
+}
+```
+
+We should also use a new prompt:
+
+> Please find me some information about the artist {artist}.  
+> Also give me a list of the top 10 songs for that artist and the amount of awards, as far as you know, for each song.  
+> If you don't know, just say it.  
+> {format}  
+
+And Voi lá:
+
+> {"artistName":"Hillsong","origin":"Australia","style":"Contemporary Christian Music, Worship","topSongs":[{"musicName":"What a Beautiful Name","numAwards":0},{"musicName":"Oceans (Where Feet May Fail)","numAwards":0},{"musicName":"Mighty to Save","numAwards":0},{"musicName":"Who You Say I Am","numAwards":0},{"musicName":"This I Believe (The Creed)","numAwards":0},{"musicName":"So Will I (100 Billion X)","numAwards":0},{"musicName":"What a Friend","numAwards":0},{"musicName":"God So Loved","numAwards":0},{"musicName":"The Stand","numAwards":0},{"musicName":"Here I Am to Worship","numAwards":0}]}
+
+This is how you should use OutputConverters in Spring AI.
