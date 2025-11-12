@@ -92,3 +92,65 @@ And let us see the result:
 Yep, sounds more like it.
 
 This is how we stuff our prompt.
+
+### RAG Motivation
+
+So, before I start on what's RAG, I really like thinking why RAG.
+
+In our example, we stuffed our prompt with the first chapter of the book of John. You can imagine our prompt got overall a lot bigger than just the question. That said, the first chapter of the book of John represents roughly 0.18% of the whole Bible.
+
+Yep, I want you to think about it for a second.
+
+That means that, if I want to allow this system of mine to answer any Bible-related question, I would have to stuff my prompt with something about 500 times bigger than I did in this example. I'll run out of tokens in a single prompt.
+
+That's where the RAG comes in.
+
+It's **a way to find relevant documents for the question**. That way, when we ask a question about John, the RAG should bring us the book of John and stuff our prompt with it.
+
+### Vectors and Embeddings
+
+But how do we know a document is relevant to that question? Think of a Google Search. But better. ...maybe.
+
+So, our first intuition is to do a syntatic search. That is, look for similar words. If I search the whole Bible for "The Word" it will probably point to the first chapter of John. In other words, it works, we can use syntatic searches for that.
+
+That said, I wouldn't be able to find anything searching for "The Verb", if for example I forgot which term is actually used by John. It may not be the best example ever, but you get the point.
+
+We need **semantic searching**, search for similar meaning. And that's where Vectors and Embeddings come.
+
+The idea here (and behind LLMs in general, if you dig a bit deeper) is to turn words, phrases, question and documents into numbers, into a big array (or else, Vector) of numbers. That's what we call **Embedding**. That way, we can query for the **distance between two vectors**.
+
+Thinking about vectors like this is a very Linear Algebra way of thinking, so we won't go too deep into it.
+
+Spring AI can't provide us with Vector Databases or Embedding Models, but it provides us with Clients for both that will make our access much easier.
+
+### RAGs
+
+So, at the end of the day, what happens in a RAG is:
+
+1. We take all of our documents (or chunks, pieces of them) and we **Embedd** them. That is, we turn them into an array of numbers that represent their meaning:
+
+```txt
+"2 The same was in the beginning with God."
+ |
+ V
+[0.87, 0.12, 0.56, ...]
+```
+
+2. We store those vectors along with references to the content in a **Vector Database**, we'll see more about them in the future.
+
+3. We take the user's question and we **Embedd** it, generating a new vector:
+
+```txt
+"Who is the verb?"
+ |
+ V
+[0.78, 0.21, 0.65, ...]
+```
+
+4. We query our **Vector Database** for vectors close to the one of the question.
+
+5. We stuff our prompt with the content referenced by those vectors.
+
+6. We give a fundamented response to the user.
+
+And that's it. That's roughly the intuition and the theory behind RAGs. Not much practice but a lot of theory. We'll get more practice in the next lesson.
